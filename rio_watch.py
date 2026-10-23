@@ -161,22 +161,50 @@ def send_tg(text):
     r.raise_for_status()
 
 
+USD_RATE = None  # руб. за 1 $, берём официальный курс НБ РБ
+
+
+def get_usd_rate():
+    try:
+        r = requests.get("https://api.nbrb.by/exrates/rates/USD",
+                         params={"parammode": 2}, timeout=15)
+        r.raise_for_status()
+        d = r.json()
+        return float(d["Cur_OfficialRate"]) / float(d.get("Cur_Scale", 1))
+    except Exception as e:
+        print(f"Курс доллара не получен, покажу только рубли: {e}", file=sys.stderr)
+        return None
+
+
+def money(price):
+    """'19 203' -> '≈ 6 300 $ (19 203 руб.)' (или только рубли, если курса нет)."""
+    if price == "Договорная" or not re.fullmatch(r"\d[\d ]*", str(price)):
+        return str(price)
+    byn = int(str(price).replace(" ", ""))
+    if not USD_RATE:
+        return f"{price} руб."
+    usd = f"{round(byn / USD_RATE):,}".replace(",", " ")
+    return f"≈ {usd} $ ({price} руб.)"
+
+
 def snapshot(ad):
     return {k: ad[k] for k in FIELDS}
 
 
 def describe(ad):
     head = f"{ad['title']} {ad['year']}, {ad['loc']}"
-    price = ad["price"] if ad["price"] == "Договорная" else f"{ad['price']} руб."
-    line2 = " · ".join(x for x in (price, ad["mileage"]) if x)
+    line2 = " · ".join(x for x in (money(ad["price"]), ad["mileage"]) if x)
     return "\n".join(x for x in (head, line2, ad["specs"], ad["url"]) if x)
 
 
 def main():
+    global USD_RATE
     ads = fetch_all()
     if not ads:
         print("Куфар: данных нет, состояние не меняю")
         return
+    USD_RATE = get_usd_rate()
+    log(f"Курс USD: {USD_RATE}")
 
     state = load_state()
     if state is None:
@@ -196,11 +224,14 @@ def main():
         if old is None:
             msg = "🆕 " + describe(ad)
         else:
-            changes = [
-                f"{name}: {old.get(k, '—')} → {snap[k]}"
-                for k, name in FIELDS.items()
-                if old.get(k) != snap[k]
-            ]
+            changes = []
+            for k, name in FIELDS.items():
+                if old.get(k) == snap[k]:
+                    continue
+                if k == "price":
+                    changes.append(f"{name}: {money(old.get(k, '—'))} → {money(snap[k])}")
+                else:
+                    changes.append(f"{name}: {old.get(k, '—')} → {snap[k]}")
             if changes:
                 msg = "✏️ Изменилось:\n" + "\n".join(changes) + "\n\n" + describe(ad)
         if msg:
