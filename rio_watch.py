@@ -61,11 +61,13 @@ def get_kufar(url, params=None):
 def parse_ad(href, ad_id, inner):
     text = html.unescape(re.sub(r"<[^>]+>", " ", inner))
     text = re.sub(r"\s+", " ", text).strip()
-    m = re.search(r"^(.*?)\s(\d[\d ]*) р\.\s*(.*)$", text)
+    m = re.search(r"^(.*?)\s(?:(\d[\d ]*) р\.|(Договорная))\s*(.*)$", text, re.I)
     if not m:
         log("Куфар: не разобрал:", text[:120])
         return None
-    title, price, rest = m.group(1), m.group(2).strip(), m.group(3)
+    title = m.group(1)
+    price = m.group(2).strip() if m.group(2) else "Договорная"
+    rest = m.group(4)
     if "Rio III" not in title:
         return None
     m2 = re.search(r"^(?:VIN\s+)?(.*?)\s*(\d{4}) г\.\s*(.*)$", rest)
@@ -165,7 +167,8 @@ def snapshot(ad):
 
 def describe(ad):
     head = f"{ad['title']} {ad['year']}, {ad['loc']}"
-    line2 = " · ".join(x for x in (f"{ad['price']} руб.", ad["mileage"]) if x)
+    price = ad["price"] if ad["price"] == "Договорная" else f"{ad['price']} руб."
+    line2 = " · ".join(x for x in (price, ad["mileage"]) if x)
     return "\n".join(x for x in (head, line2, ad["specs"], ad["url"]) if x)
 
 
